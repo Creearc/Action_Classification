@@ -9,8 +9,8 @@ from sklearn import metrics
 
 
 ANNOTATIONS_PATH = 'dataset/action_classification/'
-DATASET_TRAIN = '{}train_data_1_in.data'.format(ANNOTATIONS_PATH)
-DATASET_VAL = '{}val_data_1_in.data'.format(ANNOTATIONS_PATH)
+DATASET_TRAIN = '{}train_data_2_in.data'.format(ANNOTATIONS_PATH)
+DATASET_VAL = '{}val_data_2_in.data'.format(ANNOTATIONS_PATH)
 actions = ['crouch', 'walk', 'jump', 'stand', 'death', 'reload', 'fire']
 
 num_keypoints = 12
@@ -24,25 +24,22 @@ BATCH = 1024
 
 
 class ActionClassifyNet(nn.Module):
-    def __init__(self, in_channels=2, grid_height=5, grid_width=10):
+    def __init__(self, in_channels=2, num_classes=5):
         super(ActionClassifyNet, self).__init__()
 
-        # Conv2d layer expects input shape (batch_size, num_channels, grid_height, grid_width)
-        # For our example, num_channels = 2, because we have x and y as separate channels
-        self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=2, stride=1, padding=0)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU()
-        
-        # Derive the size of the flattened features after convolution and pooling (if any)
-        conv_output_size = 64 * (grid_width - 1) * (grid_height - 1)  # This depends on how you structure your convolutions and any pooling layers.
+        self.conv_1 = nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.bn_1 = nn.BatchNorm2d(64)
+        self.silu_1 = nn.SiLU()
 
-        self.fc1 = nn.Linear(conv_output_size, 256)
-        self.bn2 = nn.BatchNorm1d(256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, num_classes)
+        self.conv_2 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=4, stride=1, padding=0)
+        self.bn_2 = nn.BatchNorm2d(128)
+        self.silu_2 = nn.SiLU()
+
+        self.fc_1 = nn.Linear(128, num_classes)
 
         # Initialize weights and biases
         self._initialize_weights()
+        
 
     # Weight initialization
     def _initialize_weights(self):
@@ -57,17 +54,16 @@ class ActionClassifyNet(nn.Module):
 
         
     def forward(self, x):
-        x = self.conv1(x)
+        x = self.conv_1(x)
         print(x)
-        x = self.bn1(x)
-        x = self.relu(x)
+        x = self.bn_1(x)
+        x = self.silu_1(x)
+        x = self.conv_2(x)
+        x = self.bn_2(x)
+        x = self.silu_2(x)
         x = x.view(x.size(0), -1) # Flatten the tensor while keeping batch size the same
-        x = self.fc1(x)
-        x = self.bn2(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        x = self.relu(x)
-        x = self.fc3(x)
+        x = self.fc_1(x)
+        
         return x
 
 
@@ -92,12 +88,14 @@ def read_data(file_path):
 
 # Instantiate the model
 model = ActionClassifyNet(in_channels=num_channels,
-                          grid_height=num_coords,
-                          grid_width=num_keypoints)
+                          num_classes=num_classes)
+
+print(model)
 
 # Loss and optimizer
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
+
 # Adding a learning rate scheduler
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min',
                                                  factor=0.1,
@@ -130,6 +128,7 @@ for epoch in range(EPOCHES):  # number of epochs
     
     for i, data in enumerate(train_data, 0):
         inputs, labels = data
+        print(inputs)
         batch_size = labels.shape[0]
         
         outputs = model(inputs)
